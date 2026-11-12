@@ -1,0 +1,4 @@
+[submodule "third_party/vortex"]
+	path = third_party/vortex
+	url = https://github.com/vortexgpgpu/vortex.git
+	shallow = true

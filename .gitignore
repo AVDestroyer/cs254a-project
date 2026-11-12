@@ -1,0 +1,7 @@
+.vortex-tools/
+.cache/
+build/
+venv/
+__pycache__/
+*.pyc
+
