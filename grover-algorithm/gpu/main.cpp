@@ -1,6 +1,7 @@
 #include <vortex2.h>
 
 #include "common.h"
+#include "../cpu/reference.h"
 
 #include <algorithm>
 #include <chrono>
@@ -26,92 +27,67 @@
 
 namespace {
 
-void apply_gate_cpu(std::vector<complex_t>& state, uint32_t op_type,
-                    uint32_t target, uint32_t target_index) {
-    const std::size_t pair_distance = std::size_t{1} << target;
-    const std::size_t block_size = 2 * pair_distance;
-    const float inverse_sqrt_two = 1.0f / std::sqrt(2.0f);
-
-    for (std::size_t base = 0; base < state.size(); base += block_size) {
-        for (std::size_t offset = 0; offset < pair_distance; ++offset) {
-            const std::size_t zero_index = base + offset;
-            const std::size_t one_index = zero_index + pair_distance;
-            const complex_t zero = state[zero_index];
-            const complex_t one = state[one_index];
-
-            if (op_type == OP_HADAMARD) {
-                state[zero_index] = {
-                    (zero.real + one.real) * inverse_sqrt_two,
-                    (zero.imag + one.imag) * inverse_sqrt_two,
-                };
-                state[one_index] = {
-                    (zero.real - one.real) * inverse_sqrt_two,
-                    (zero.imag - one.imag) * inverse_sqrt_two,
-                };
-            } else if (op_type == OP_PAULI_X) {
-                state[zero_index] = one;
-                state[one_index] = zero;
-            } else if (op_type == OP_PHASE_FLIP) {
-                if (zero_index == target_index) {
-                    state[zero_index] = {-zero.real, -zero.imag};
-                }
-                if (one_index == target_index) {
-                    state[one_index] = {-one.real, -one.imag};
-                }
-            }
-        }
+uint32_t parse_value(const std::string& text) {
+    if (text.empty() || text[0] == '-') {
+        throw std::invalid_argument("expected a nonnegative integer");
     }
+    std::size_t consumed = 0;
+    const auto value = std::stoul(text, &consumed);
+    if (consumed != text.size() || value > UINT32_MAX) {
+        throw std::invalid_argument("invalid integer: " + text);
+    }
+    return static_cast<uint32_t>(value);
 }
 
-void run_grover_cpu(std::vector<complex_t>& state, uint32_t num_qubits,
-                    uint32_t oracle_target, uint32_t iterations) {
-    const uint32_t all_ones = (1u << num_qubits) - 1u;
-
-    // 1. Initial superposition H^{\otimes n}
-    for (uint32_t q = 0; q < num_qubits; ++q) {
-        apply_gate_cpu(state, OP_HADAMARD, q, 0);
+std::string binary_label(uint32_t value, uint32_t bits) {
+    std::string label(bits, '0');
+    for (uint32_t bit = 0; bit < bits; ++bit) {
+        label[bits - bit - 1u] = ((value >> bit) & 1u) ? '1' : '0';
     }
-
-    // 2. Grover iterations
-    for (uint32_t iter = 0; iter < iterations; ++iter) {
-        // Oracle: flip phase of |0010>
-        apply_gate_cpu(state, OP_PHASE_FLIP, 0, oracle_target);
-
-        // Diffuser: H^{\otimes n} X^{\otimes n} MCZ X^{\otimes n} H^{\otimes n}
-        for (uint32_t q = 0; q < num_qubits; ++q) {
-            apply_gate_cpu(state, OP_HADAMARD, q, 0);
-        }
-        for (uint32_t q = 0; q < num_qubits; ++q) {
-            apply_gate_cpu(state, OP_PAULI_X, q, 0);
-        }
-        apply_gate_cpu(state, OP_PHASE_FLIP, 0, all_ones);
-        for (uint32_t q = 0; q < num_qubits; ++q) {
-            apply_gate_cpu(state, OP_PAULI_X, q, 0);
-        }
-        for (uint32_t q = 0; q < num_qubits; ++q) {
-            apply_gate_cpu(state, OP_HADAMARD, q, 0);
-        }
-    }
+    return label;
 }
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
-        constexpr uint32_t num_qubits = 4;
-        constexpr uint32_t oracle_target = 0b0010;  // |0010> = index 2
-        constexpr uint32_t iterations = 3;          // floor(pi/4 * sqrt(16)) = 3
-        constexpr uint32_t all_ones = (1u << num_qubits) - 1u;
+        uint32_t num_qubits = 4;
+        uint32_t iterations = 0;
+        bool iterations_given = false;
+        for (int i = 1; i < argc; ++i) {
+            const std::string option(argv[i]);
+            if (option.rfind("-n", 0) == 0) {
+                num_qubits = parse_value(option.substr(2));
+            } else if (option.rfind("-i", 0) == 0) {
+                iterations = parse_value(option.substr(2));
+                iterations_given = true;
+            } else {
+                throw std::invalid_argument("usage: grover-algorithm [-nQUBITS] [-iITERATIONS]");
+            }
+        }
+        if (num_qubits < 2 || num_qubits > 20) {
+            throw std::invalid_argument("QUBITS must be between 2 and 20");
+        }
 
-        const std::size_t state_size = std::size_t{1} << num_qubits;
-        const uint32_t pair_count = uint32_t{1} << (num_qubits - 1u);
-        const uint64_t state_bytes = state_size * sizeof(complex_t);
+        constexpr uint32_t oracle_target = 2;
+        constexpr double pi = 3.14159265358979323846;
+        const uint32_t state_size = 1u << num_qubits;
+        const uint32_t pair_count = state_size / 2u;
+        if (!iterations_given) {
+            iterations = static_cast<uint32_t>(
+                std::floor((pi / 4.0) * std::sqrt(static_cast<double>(state_size))));
+        }
+        if (iterations == 0) {
+            throw std::invalid_argument("ITERATIONS must be positive");
+        }
+        const uint64_t state_bytes = static_cast<uint64_t>(state_size) * sizeof(complex_t);
 
-        std::vector<complex_t> initial(state_size, {0.0f, 0.0f});
-        initial[0] = {1.0f, 0.0f};
-
+        const float initial_amplitude = 1.0f / std::sqrt(static_cast<float>(state_size));
+        std::vector<complex_t> initial(state_size, {initial_amplitude, 0.0f});
         std::vector<complex_t> expected = initial;
-        run_grover_cpu(expected, num_qubits, oracle_target, iterations);
+        const auto cpu_start = std::chrono::steady_clock::now();
+        run_grover_cpu(expected, oracle_target, iterations);
+        const auto cpu_stop = std::chrono::steady_clock::now();
 
         vx_device_h device = nullptr;
         VX_CHECK(vx_device_open(0, &device));
@@ -122,19 +98,31 @@ int main() {
         VX_CHECK(vx_device_query(device, VX_CAPS_NUM_CORES, &core_count));
         VX_CHECK(vx_device_query(device, VX_CAPS_NUM_WARPS, &warps_per_core));
         VX_CHECK(vx_device_query(device, VX_CAPS_NUM_THREADS, &threads_per_warp));
+        if (core_count == 0 || warps_per_core == 0 || threads_per_warp == 0) {
+            throw std::runtime_error("Vortex reported no execution resources");
+        }
 
-        const uint32_t max_threads_per_cta =
-            static_cast<uint32_t>(warps_per_core * threads_per_warp);
-        const uint32_t threads_per_cta =
-            std::min(max_threads_per_cta, pair_count);
-        const uint32_t cta_count =
+        uint32_t threads_per_cta = static_cast<uint32_t>(
+            std::min<uint64_t>(warps_per_core * threads_per_warp, pair_count));
+        // The local-memory reduction halves the active thread count each step.
+        while ((threads_per_cta & (threads_per_cta - 1u)) != 0u) {
+            --threads_per_cta;
+        }
+        const uint32_t update_ctas =
             (pair_count + threads_per_cta - 1u) / threads_per_cta;
+        const uint32_t partial_ctas = static_cast<uint32_t>(
+            std::min<uint64_t>(4u * core_count, update_ctas));
 
-        std::cout << "Hardware configuration: " << core_count << " cores x "
+        std::cout << "Grover search: " << num_qubits << " qubits, " << state_size
+                  << " amplitudes, " << iterations << " iterations, target |"
+                  << binary_label(oracle_target, num_qubits) << ">\n"
+                  << "Hardware configuration: " << core_count << " cores x "
                   << warps_per_core << " warps x " << threads_per_warp
                   << " threads\n"
-                  << "Launch configuration per gate: " << cta_count
-                  << " CTAs x " << threads_per_cta << " threads\n";
+                  << "Launch configuration: " << partial_ctas
+                  << " reduction CTAs, " << update_ctas << " update CTAs x "
+                  << threads_per_cta << " threads\n"
+                  << "Kernel launches: " << 3u * iterations << '\n';
 
         vx_queue_info_t queue_info{};
         queue_info.struct_size = sizeof(queue_info);
@@ -143,8 +131,15 @@ int main() {
         VX_CHECK(vx_queue_create(device, &queue_info, &queue));
 
         vx_buffer_h state_buffer = nullptr;
+        vx_buffer_h partial_buffer = nullptr;
+        vx_buffer_h mean_buffer = nullptr;
         VX_CHECK(vx_buffer_create(device, state_bytes, VX_MEM_READ_WRITE,
                                   &state_buffer));
+        VX_CHECK(vx_buffer_create(device,
+                                  static_cast<uint64_t>(partial_ctas) * sizeof(complex_t),
+                                  VX_MEM_READ_WRITE, &partial_buffer));
+        VX_CHECK(vx_buffer_create(device, sizeof(complex_t), VX_MEM_READ_WRITE,
+                                  &mean_buffer));
 
         vx_module_h module = nullptr;
         vx_kernel_h kernel = nullptr;
@@ -153,7 +148,12 @@ int main() {
 
         kernel_arg_t kernel_arg{};
         VX_CHECK(vx_buffer_address(state_buffer, &kernel_arg.state_addr));
+        VX_CHECK(vx_buffer_address(partial_buffer, &kernel_arg.partial_addr));
+        VX_CHECK(vx_buffer_address(mean_buffer, &kernel_arg.mean_addr));
+        kernel_arg.state_size = state_size;
         kernel_arg.pair_count = pair_count;
+        kernel_arg.partial_count = partial_ctas;
+        kernel_arg.target_index = oracle_target;
 
         VX_CHECK(vx_enqueue_write(queue, state_buffer, 0, initial.data(),
                                   state_bytes, 0, nullptr, nullptr));
@@ -164,48 +164,22 @@ int main() {
         launch.args_host = &kernel_arg;
         launch.args_size = sizeof(kernel_arg);
         launch.ndim = 1;
-        launch.grid_dim[0] = cta_count;
         launch.block_dim[0] = threads_per_cta;
 
-        auto enqueue_gate = [&](uint32_t op_type, uint32_t target_qubit,
-                                uint32_t target_index,
-                                vx_event_h* out_event = nullptr) {
-            kernel_arg.op_type = op_type;
-            kernel_arg.target_qubit = target_qubit;
-            kernel_arg.target_index = target_index;
+        auto enqueue_stage = [&](grover_op_t op, uint32_t ctas,
+                                 vx_event_h* out_event = nullptr) {
+            kernel_arg.op_type = op;
+            launch.grid_dim[0] = ctas;
             VX_CHECK(vx_enqueue_launch(queue, &launch, 0, nullptr, out_event));
         };
 
         vx_event_h last_launch = nullptr;
         const auto start = std::chrono::steady_clock::now();
-
-        // Step 1: Uniform superposition H^{\otimes 4}
-        for (uint32_t q = 0; q < num_qubits; ++q) {
-            enqueue_gate(OP_HADAMARD, q, 0);
-        }
-
-        // Step 2: Grover iterations (Oracle + Diffuser)
         for (uint32_t iter = 0; iter < iterations; ++iter) {
-            // Oracle: phase flip |0010>
-            enqueue_gate(OP_PHASE_FLIP, 0, oracle_target);
-
-            // Diffuser
-            for (uint32_t q = 0; q < num_qubits; ++q) {
-                enqueue_gate(OP_HADAMARD, q, 0);
-            }
-            for (uint32_t q = 0; q < num_qubits; ++q) {
-                enqueue_gate(OP_PAULI_X, q, 0);
-            }
-            enqueue_gate(OP_PHASE_FLIP, 0, all_ones);
-            for (uint32_t q = 0; q < num_qubits; ++q) {
-                enqueue_gate(OP_PAULI_X, q, 0);
-            }
-            for (uint32_t q = 0; q < num_qubits; ++q) {
-                const bool is_final_gate =
-                    (iter + 1u == iterations) && (q + 1u == num_qubits);
-                enqueue_gate(OP_HADAMARD, q, 0,
-                             is_final_gate ? &last_launch : nullptr);
-            }
+            enqueue_stage(OP_PARTIAL_SUM, partial_ctas);
+            enqueue_stage(OP_FINAL_SUM, 1);
+            enqueue_stage(OP_DIFFUSE, update_ctas,
+                          iter + 1u == iterations ? &last_launch : nullptr);
         }
 
         std::vector<complex_t> actual(state_size);
@@ -216,38 +190,43 @@ int main() {
         const auto stop = std::chrono::steady_clock::now();
 
         float max_error = 0.0f;
-        std::size_t measured_state = 0;
-        float max_prob = -1.0f;
-
-        std::cout << "\nFinal State Vector Probabilities:\n";
-        for (std::size_t index = 0; index < state_size; ++index) {
-            max_error = std::max(
-                max_error, std::abs(actual[index].real - expected[index].real));
-            max_error = std::max(
-                max_error, std::abs(actual[index].imag - expected[index].imag));
-
-            const float prob = actual[index].real * actual[index].real +
-                               actual[index].imag * actual[index].imag;
-            if (prob > max_prob) {
-                max_prob = prob;
-                measured_state = index;
+        uint32_t most_probable_state = 0;
+        double max_probability = -1.0;
+        double total_probability = 0.0;
+        for (uint32_t index = 0; index < state_size; ++index) {
+            max_error = std::max(max_error,
+                                 std::abs(actual[index].real - expected[index].real));
+            max_error = std::max(max_error,
+                                 std::abs(actual[index].imag - expected[index].imag));
+            const double probability =
+                static_cast<double>(actual[index].real) * actual[index].real +
+                static_cast<double>(actual[index].imag) * actual[index].imag;
+            total_probability += probability;
+            if (probability > max_probability) {
+                max_probability = probability;
+                most_probable_state = index;
             }
-
-            std::cout << "  |" << ((index >> 3) & 1) << ((index >> 2) & 1)
-                      << ((index >> 1) & 1) << (index & 1) << "> : amp=("
-                      << std::setw(9) << std::setprecision(5) << actual[index].real
-                      << ", " << std::setw(8) << actual[index].imag
-                      << ")  prob=" << std::setprecision(4) << (prob * 100.0f)
-                      << "%\n";
+            if (num_qubits <= 4) {
+                std::cout << "  |" << binary_label(index, num_qubits)
+                          << ">: " << probability * 100.0 << "%\n";
+            }
         }
 
-        const std::chrono::duration<double, std::milli> elapsed = stop - start;
+        const double theta = std::asin(1.0 / std::sqrt(static_cast<double>(state_size)));
+        const double predicted_probability =
+            std::pow(std::sin((2.0 * iterations + 1.0) * theta), 2.0);
+        const std::chrono::duration<double, std::milli> gpu_elapsed = stop - start;
+        const std::chrono::duration<double, std::milli> cpu_elapsed = cpu_stop - cpu_start;
         std::cout << std::fixed << std::setprecision(6)
-                  << "\nMost probable state: |" << ((measured_state >> 3) & 1)
-                  << ((measured_state >> 2) & 1) << ((measured_state >> 1) & 1)
-                  << (measured_state & 1) << "> (" << (max_prob * 100.0f)
-                  << "%)\n"
-                  << "Simulator wall time: " << elapsed.count() << " ms\n"
+                  << "Most probable state: |"
+                  << binary_label(most_probable_state, num_qubits) << "> ("
+                  << max_probability * 100.0 << "%)\n"
+                  << "Predicted target probability: "
+                  << predicted_probability * 100.0 << "%\n"
+                  << "Total probability: " << total_probability << '\n'
+                  << "CPU reference time: " << cpu_elapsed.count() << " ms\n"
+                  << "Simulator wall time (not target time): "
+                  << gpu_elapsed.count() << " ms\n"
                   << "Maximum amplitude error: " << max_error << '\n';
 
         vx_event_release(read_event);
@@ -255,11 +234,15 @@ int main() {
         VX_CHECK(vx_device_dump_perf(device, stdout));
         vx_kernel_release(kernel);
         vx_module_release(module);
+        vx_buffer_release(mean_buffer);
+        vx_buffer_release(partial_buffer);
         vx_buffer_release(state_buffer);
         vx_queue_release(queue);
         vx_device_release(device);
 
-        if (max_error > 1.0e-5f || measured_state != oracle_target) {
+        if (max_error > 1.0e-3f ||
+            std::abs(total_probability - 1.0) > 1.0e-3 ||
+            most_probable_state != oracle_target) {
             std::cerr << "FAILED\n";
             return EXIT_FAILURE;
         }

@@ -4,11 +4,13 @@ VORTEX_BUILD := $(VORTEX_ROOT)/build
 
 # Original Simulation Paths
 GPU_SRC := $(PROJECT_ROOT)/GPU-simulations
+CPU_SRC := $(PROJECT_ROOT)/CPU-simulations
 VORTEX_APP_BUILD := $(VORTEX_BUILD)/tests/regression/quantum-gate
 CPU_BINARY := $(PROJECT_ROOT)/build/basic-gates-cpu
 
 # New Grover Simulation Paths
 GROVER_SRC := $(PROJECT_ROOT)/grover-algorithm/gpu
+GROVER_CPU_SRC := $(PROJECT_ROOT)/grover-algorithm/cpu
 GROVER_APP_BUILD := $(VORTEX_BUILD)/tests/regression/grover-algorithm
 GROVER_CPU_BINARY := $(PROJECT_ROOT)/build/grover-cpu
 
@@ -17,6 +19,9 @@ export CCACHE_DIR := $(PROJECT_ROOT)/.cache/ccache
 export POCL_CACHE_DIR := $(PROJECT_ROOT)/.cache/pocl
 
 QUBITS ?= 15
+GROVER_QUBITS ?= 4
+GROVER_ITERATIONS ?=
+GROVER_OPTS = -n$(GROVER_QUBITS) $(if $(GROVER_ITERATIONS),-i$(GROVER_ITERATIONS))
 PERF ?= 1
 VORTEX_DEBUG ?=
 VORTEX_CORES ?= 16
@@ -32,7 +37,7 @@ VORTEX_CONFIGS = -DVX_CFG_NUM_CORES=$(VORTEX_CORES) \
 
 cpu: $(CPU_BINARY)
 
-$(CPU_BINARY): $(GPU_SRC)/main.cpp Makefile
+$(CPU_BINARY): $(CPU_SRC)/basic-gates.cpp Makefile
 	mkdir -p $(dir $@)
 	$(CXX) $(CPU_CXXFLAGS) $< -o $@
 
@@ -64,27 +69,27 @@ vortex-rtlsim: check-vortex
 
 grover-cpu: $(GROVER_CPU_BINARY)
 
-$(GROVER_CPU_BINARY): $(GROVER_SRC)/main.cpp Makefile
+$(GROVER_CPU_BINARY): $(GROVER_CPU_SRC)/main.cpp $(GROVER_CPU_SRC)/reference.h $(GROVER_SRC)/common.h Makefile
 	mkdir -p $(dir $@)
-	$(CXX) $(CPU_CXXFLAGS) $< -o $@
+	$(CXX) $(CPU_CXXFLAGS) $(GROVER_CPU_SRC)/main.cpp -o $@
 
 grover-cpu-run: grover-cpu
-	$(GROVER_CPU_BINARY)
+	$(GROVER_CPU_BINARY) $(GROVER_OPTS)
 
 grover-build: check-vortex
 	mkdir -p $(GROVER_APP_BUILD)
 	$(MAKE) -C $(GROVER_APP_BUILD) -f $(abspath $(PROJECT_ROOT)/grover-algorithm/vortex.mk) \
-		GROVER_SRC_DIR=$(abspath $(GROVER_SRC)) OPTS="-n4" PERF=$(PERF) \
+		GROVER_SRC_DIR=$(abspath $(GROVER_SRC)) OPTS="$(GROVER_OPTS)" PERF=$(PERF) \
 		DEBUG=$(VORTEX_DEBUG) CONFIGS="$(VORTEX_CONFIGS)" all
 
 grover-simx: check-vortex
 	mkdir -p $(GROVER_APP_BUILD)
 	$(MAKE) -C $(GROVER_APP_BUILD) -f $(abspath $(PROJECT_ROOT)/grover-algorithm/vortex.mk) \
-		GROVER_SRC_DIR=$(abspath $(GROVER_SRC)) OPTS="-n4" PERF=$(PERF) \
+		GROVER_SRC_DIR=$(abspath $(GROVER_SRC)) OPTS="$(GROVER_OPTS)" PERF=$(PERF) \
 		DEBUG=$(VORTEX_DEBUG) CONFIGS="$(VORTEX_CONFIGS)" run-simx
 
 grover-rtlsim: check-vortex
 	mkdir -p $(GROVER_APP_BUILD)
 	$(MAKE) -C $(GROVER_APP_BUILD) -f $(abspath $(PROJECT_ROOT)/grover-algorithm/vortex.mk) \
-		GROVER_SRC_DIR=$(abspath $(GROVER_SRC)) OPTS="-n4" PERF=$(PERF) \
+		GROVER_SRC_DIR=$(abspath $(GROVER_SRC)) OPTS="$(GROVER_OPTS)" PERF=$(PERF) \
 		DEBUG=$(VORTEX_DEBUG) CONFIGS="$(VORTEX_CONFIGS)" run-rtlsim

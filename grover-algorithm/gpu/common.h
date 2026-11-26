@@ -3,10 +3,10 @@
 
 #include <stdint.h>
 
-enum gate_op_t : uint32_t {
-    OP_HADAMARD = 0,
-    OP_PAULI_X  = 1,
-    OP_PHASE_FLIP = 2, // Flips sign of state[target_index]
+enum grover_op_t : uint32_t {
+    OP_PARTIAL_SUM = 0,
+    OP_FINAL_SUM = 1,
+    OP_DIFFUSE = 2,
 };
 
 struct complex_t {
@@ -16,10 +16,13 @@ struct complex_t {
 
 struct kernel_arg_t {
     uint64_t state_addr;
+    uint64_t partial_addr;
+    uint64_t mean_addr;
+    uint32_t state_size;
     uint32_t pair_count;
-    uint32_t target_qubit;
-    uint32_t op_type;
+    uint32_t partial_count;
     uint32_t target_index;
+    uint32_t op_type;
 };
 
 #endif

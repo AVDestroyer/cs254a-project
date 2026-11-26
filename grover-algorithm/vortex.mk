@@ -10,7 +10,7 @@ endif
 SRC_DIR := $(abspath $(GROVER_SRC_DIR))
 SRCS := $(SRC_DIR)/main.cpp
 VX_SRCS := $(SRC_DIR)/kernel.cpp
-HDRS := $(SRC_DIR)/common.h
+HDRS := $(SRC_DIR)/common.h $(SRC_DIR)/../cpu/reference.h
 VX_HDRS := $(SRC_DIR)/common.h
 KERNEL_LIB := vortex2
 OPTS ?=
