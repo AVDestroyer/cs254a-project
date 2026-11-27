@@ -2,16 +2,12 @@
 #define GROVER_COMMON_H
 
 #include <stdint.h>
+#include "../../../simulator/state.h"
 
 enum grover_op_t : uint32_t {
     OP_PARTIAL_SUM = 0,
     OP_FINAL_SUM = 1,
     OP_DIFFUSE = 2,
-};
-
-struct complex_t {
-    float real;
-    float imag;
 };
 
 struct kernel_arg_t {

@@ -2,11 +2,7 @@
 #define QUANTUM_GATE_COMMON_H
 
 #include <stdint.h>
-
-struct complex_t {
-    float real;
-    float imag;
-};
+#include "../../../simulator/state.h"
 
 struct kernel_arg_t {
     uint64_t state_addr;

@@ -1,7 +1,7 @@
 #ifndef GROVER_CPU_REFERENCE_H
 #define GROVER_CPU_REFERENCE_H
 
-#include "../gpu/common.h"
+#include "../../../simulator/state.h"
 
 #include <cstdint>
 #include <vector>

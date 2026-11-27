@@ -28,8 +28,8 @@ env -u DEBUG CCACHE_DIR="$ccache_dir" make -s -C sw/runtime/stub
 env -u DEBUG CCACHE_DIR="$ccache_dir" make -s -C sw/runtime/simx
 env -u DEBUG CCACHE_DIR="$ccache_dir" make install
 
-mkdir -p "$vortex_build/tests/regression/quantum-gate"
+mkdir -p "$vortex_build/tests/regression/hadamard"
 
 echo "Vortex is ready. Run the tuned 15-qubit configuration with:"
-echo "  make vortex-simx"
+echo "  make hadamard-simx"
 

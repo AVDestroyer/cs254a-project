@@ -2,8 +2,9 @@
 
 #include "common.h"
 
-// A Grover iteration is an oracle sign flip followed by inversion about the
-// mean. The partial and final sums provide a global reduction without atomics.
+// The partial pass flips the marked amplitude while computing block sums.
+// The final sum supplies the global mean before the diffusion pass updates
+// every amplitude; separate launches provide the required global barriers.
 __kernel void kernel_main(kernel_arg_t* __UNIFORM__ arg) {
     auto state = reinterpret_cast<complex_t*>(arg->state_addr);
 
@@ -15,12 +16,17 @@ __kernel void kernel_main(kernel_arg_t* __UNIFORM__ arg) {
 
         for (uint32_t pair = first; pair < arg->pair_count; pair += stride) {
             const uint32_t index = pair * 2u;
-            const complex_t a = state[index];
-            const complex_t b = state[index + 1u];
-            const float a_sign = index == arg->target_index ? -1.0f : 1.0f;
-            const float b_sign = index + 1u == arg->target_index ? -1.0f : 1.0f;
-            sum.real += a_sign * a.real + b_sign * b.real;
-            sum.imag += a_sign * a.imag + b_sign * b.imag;
+            complex_t a = state[index];
+            complex_t b = state[index + 1u];
+            if (index == arg->target_index) {
+                a = {-a.real, -a.imag};
+                state[index] = a;
+            } else if (index + 1u == arg->target_index) {
+                b = {-b.real, -b.imag};
+                state[index + 1u] = b;
+            }
+            sum.real += a.real + b.real;
+            sum.imag += a.imag + b.imag;
         }
 
         auto scratch = reinterpret_cast<complex_t*>(__local_mem());
@@ -59,11 +65,9 @@ __kernel void kernel_main(kernel_arg_t* __UNIFORM__ arg) {
         const complex_t average = mean[0];
         const complex_t a = state[index];
         const complex_t b = state[index + 1u];
-        const float a_sign = index == arg->target_index ? -1.0f : 1.0f;
-        const float b_sign = index + 1u == arg->target_index ? -1.0f : 1.0f;
-        state[index] = {2.0f * average.real - a_sign * a.real,
-                        2.0f * average.imag - a_sign * a.imag};
-        state[index + 1u] = {2.0f * average.real - b_sign * b.real,
-                             2.0f * average.imag - b_sign * b.imag};
+        state[index] = {2.0f * average.real - a.real,
+                        2.0f * average.imag - a.imag};
+        state[index + 1u] = {2.0f * average.real - b.real,
+                             2.0f * average.imag - b.imag};
     }
 }
