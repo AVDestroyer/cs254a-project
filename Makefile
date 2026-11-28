@@ -12,10 +12,30 @@ export POCL_CACHE_DIR := $(PROJECT_ROOT)/.cache/pocl
 
 QUBITS ?= 15
 HADAMARD_QUBITS ?= $(QUBITS)
+HADAMARD_LAUNCHES ?=
+HADAMARD_BLOCK ?=
+HADAMARD_WORK ?=
+HADAMARD_SUBMISSION ?= individual
+HADAMARD_OPTS = -n$(HADAMARD_QUBITS) $(if $(HADAMARD_LAUNCHES),-l$(HADAMARD_LAUNCHES)) \
+	$(if $(HADAMARD_BLOCK),-b$(HADAMARD_BLOCK)) \
+	$(if $(HADAMARD_WORK),-w$(HADAMARD_WORK)) -s$(HADAMARD_SUBMISSION)
 GROVER_QUBITS ?= 4
 GROVER_ITERATIONS ?=
-GROVER_OPTS = -n$(GROVER_QUBITS) $(if $(GROVER_ITERATIONS),-i$(GROVER_ITERATIONS))
+GROVER_BLOCK ?=
+GROVER_WORK ?=
+GROVER_REDUCTION_CTAS ?=
+GROVER_REDUCTION_WORK ?=
+GROVER_SUBMISSION ?= individual
+GROVER_OPTS = -n$(GROVER_QUBITS) $(if $(GROVER_ITERATIONS),-i$(GROVER_ITERATIONS)) \
+	$(if $(GROVER_BLOCK),-b$(GROVER_BLOCK)) $(if $(GROVER_WORK),-w$(GROVER_WORK)) \
+	$(if $(GROVER_REDUCTION_CTAS),-r$(GROVER_REDUCTION_CTAS)) \
+	$(if $(GROVER_REDUCTION_WORK),-p$(GROVER_REDUCTION_WORK)) -s$(GROVER_SUBMISSION)
 QFT_QUBITS ?= 4
+QFT_BLOCK ?=
+QFT_WORK ?=
+QFT_SUBMISSION ?= individual
+QFT_OPTS = -n$(QFT_QUBITS) $(if $(QFT_BLOCK),-b$(QFT_BLOCK)) \
+	$(if $(QFT_WORK),-w$(QFT_WORK)) -s$(QFT_SUBMISSION)
 PERF ?= 1
 VORTEX_DEBUG ?=
 VORTEX_CORES ?= 16
@@ -53,7 +73,7 @@ hadamard-cpu-run: hadamard-cpu
 
 grover-cpu: $(GROVER_CPU_BINARY)
 grover-cpu-run: grover-cpu
-	$(GROVER_CPU_BINARY) $(GROVER_OPTS)
+	$(GROVER_CPU_BINARY) -n$(GROVER_QUBITS) $(if $(GROVER_ITERATIONS),-i$(GROVER_ITERATIONS))
 
 qft-cpu: $(QFT_CPU_BINARY)
 qft-cpu-run: qft-cpu
@@ -65,11 +85,11 @@ check-vortex:
 		(echo "Vortex is not configured; run scripts/setup-vortex.sh first"; exit 1)
 
 hadamard-build hadamard-simx hadamard-rtlsim: ALGORITHM = hadamard
-hadamard-build hadamard-simx hadamard-rtlsim: ALGORITHM_OPTS = -n$(HADAMARD_QUBITS)
+hadamard-build hadamard-simx hadamard-rtlsim: ALGORITHM_OPTS = $(HADAMARD_OPTS)
 grover-build grover-simx grover-rtlsim: ALGORITHM = grover
 grover-build grover-simx grover-rtlsim: ALGORITHM_OPTS = $(GROVER_OPTS)
 qft-build qft-simx qft-rtlsim: ALGORITHM = qft
-qft-build qft-simx qft-rtlsim: ALGORITHM_OPTS = -n$(QFT_QUBITS)
+qft-build qft-simx qft-rtlsim: ALGORITHM_OPTS = $(QFT_OPTS)
 
 hadamard-build grover-build qft-build: VORTEX_TARGET = all
 hadamard-simx grover-simx qft-simx: VORTEX_TARGET = run-simx

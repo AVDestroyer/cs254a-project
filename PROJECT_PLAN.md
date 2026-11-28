@@ -23,6 +23,12 @@ Every workload reports CPU median execution time, Vortex cycles and clock rate, 
 
 ## Step 2 — Unfused GPU execution and launch submission (agreed)
 
+**Implementation status:** implemented and benchmarked on Vortex SimX. The
+three submission APIs, fixed-size launch-count benchmark, per-algorithm geometry
+controls, and CPU/GPU correctness checks are in place. See
+`reports/step2_geometry.md` for the sweep, selected configurations, and
+limitations of the performance-counter attribution.
+
 Keep gate and algorithm mathematics unchanged while comparing three submission paths: individual `vx_enqueue_launch` calls, ordered `vx_enqueue_commands`, and `vx_enqueue_draw`. Build a launch-count microbenchmark and run short and long versions of Hadamard, Grover, and QFT. Record modeled device cycles, configured clock, host queue/event timing, SimX wall time, and launch count separately. The batched APIs reduce host submission work but retain separate device kernel executions; attribute any improvement to the timing component that actually changes.
 
 With submission mode held fixed, tune kernel geometry **per algorithm**. Sweep block size and work per thread for amplitude updates; for Grover, also sweep reduction CTAs and reduction work per thread. Keep the kernels manual and retain a documented configuration for each workload. Compare geometry variants against the same CPU result and output checks. Do not fuse gates or change algorithm mathematics in this step.

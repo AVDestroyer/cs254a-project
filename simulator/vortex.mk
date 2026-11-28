@@ -15,6 +15,7 @@ VX_SRCS := $(SRC_DIR)/kernel.cpp
 HDRS := $(SRC_DIR)/common.h $(wildcard $(ALGORITHM_DIR)/cpu/*.h) \
         $(SIMULATOR_DIR)/state.h $(SIMULATOR_DIR)/cpu_ops.h \
         $(SIMULATOR_DIR)/benchmark.h $(SIMULATOR_DIR)/vortex_runner.h
+HDRS += $(SIMULATOR_DIR)/gpu_tuning.h
 VX_HDRS := $(SRC_DIR)/common.h $(SIMULATOR_DIR)/state.h
 KERNEL_LIB := vortex2
 OPTS ?= -n4

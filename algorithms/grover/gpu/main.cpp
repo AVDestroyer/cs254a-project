@@ -1,7 +1,7 @@
 #include "common.h"
 #include "../cpu/reference.h"
 #include "../../../simulator/benchmark.h"
-#include "../../../simulator/vortex_runner.h"
+#include "../../../simulator/gpu_tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +17,7 @@ int main(int argc, char** argv) {
         uint32_t qubits = 4;
         uint32_t iterations = 0;
         bool iterations_given = false;
+        gpu_tuning_t tuning;
         for (int index = 1; index < argc; ++index) {
             const std::string option(argv[index]);
             if (option.rfind("-n", 0) == 0) {
@@ -24,8 +25,10 @@ int main(int argc, char** argv) {
             } else if (option.rfind("-i", 0) == 0) {
                 iterations = parse_uint32(option.substr(2));
                 iterations_given = true;
-            } else {
-                throw std::invalid_argument("usage: grover [-nQUBITS] [-iITERATIONS]");
+            } else if (!parse_gpu_tuning_option(option, tuning)) {
+                throw std::invalid_argument(
+                    "usage: grover [-nQUBITS] [-iITERATIONS] [-bBLOCK] "
+                    "[-wWORK] [-rREDUCTION_CTAS | -pREDUCTION_WORK] [-sMODE]");
             }
         }
         if (qubits < 2u || qubits > 20u) {
@@ -49,16 +52,27 @@ int main(int argc, char** argv) {
             run_grover_cpu(state, target, iterations);
         });
 
-        vortex_runner_t runner(initial);
+        vortex_runner_t runner(initial, tuning.submission);
         const vortex_hardware_t& hardware = runner.hardware();
-        uint32_t block = static_cast<uint32_t>(
-            std::min<uint64_t>(hardware.warps_per_core * hardware.threads_per_warp,
-                               pairs));
-        // The reduction tree requires a power-of-two block size.
-        while ((block & (block - 1u)) != 0u) --block;
-        const uint32_t update_ctas = (pairs + block - 1u) / block;
-        const uint32_t partial_ctas = static_cast<uint32_t>(
-            std::min<uint64_t>(4u * hardware.cores, update_ctas));
+        const uint32_t block = select_block(tuning, hardware, pairs);
+        const uint32_t update_ctas = work_grid(pairs, block, tuning.work_per_thread);
+        if (tuning.reduction_ctas != 0u && tuning.reduction_work_per_thread != 0u) {
+            throw std::invalid_argument("use either reduction CTAs or reduction work");
+        }
+        if (tuning.reduction_work_per_thread > 64u) {
+            throw std::invalid_argument("reduction work per thread must be at most 64");
+        }
+        const uint32_t reduction_work = std::max(1u, tuning.reduction_work_per_thread);
+        const uint32_t useful_ctas = work_grid(pairs, block, reduction_work);
+        const uint32_t partial_ctas = tuning.reduction_ctas == 0u
+            ? static_cast<uint32_t>(std::min<uint64_t>(4u * hardware.cores, useful_ctas))
+            : tuning.reduction_ctas;
+        if (partial_ctas == 0u || partial_ctas >
+            static_cast<uint32_t>(std::min<uint64_t>(4u * hardware.cores,
+                                                    work_grid(pairs, block, 1u)))) {
+            throw std::invalid_argument("reduction CTAs exceed the useful hardware limit");
+        }
+        const uint32_t actual_reduction_work = work_grid(pairs, block * partial_ctas, 1u);
 
         kernel_arg_t arg{};
         arg.state_addr = runner.state_address();
@@ -78,10 +92,13 @@ int main(int argc, char** argv) {
                   << hardware.threads_per_warp << " threads\n"
                   << "Launch configuration: " << partial_ctas
                   << " reduction CTAs, " << update_ctas << " update CTAs x "
-                  << block << " threads\n";
+                  << block << " threads, approximately " << tuning.work_per_thread
+                  << " update pairs/thread and " << actual_reduction_work
+                  << " reduction pairs/thread; submission="
+                  << submission_mode_name(tuning.submission) << '\n';
         for (uint32_t iteration = 0; iteration < iterations; ++iteration) {
             arg.op_type = OP_PARTIAL_SUM;
-            runner.launch(arg, partial_ctas, block);
+            runner.launch(arg, partial_ctas, block, block * sizeof(complex_t));
             arg.op_type = OP_FINAL_SUM;
             runner.launch(arg, 1, block);
             arg.op_type = OP_DIFFUSE;
@@ -116,10 +133,20 @@ int main(int argc, char** argv) {
         const bool passed = error <= 1.0e-3 &&
                             std::abs(norm - 1.0) <= 1.0e-3 &&
                             std::abs(target_probability - predicted_probability) <= 5.0e-3;
-        print_benchmark_report({"grover", qubits, gpu.launches,
-                                cpu.median_ms, gpu.sim_wall_ms,
-                                gpu.device_cycles, gpu.clock_mhz,
-                                error, norm, passed});
+        benchmark_report_t report{"grover", qubits, gpu.launches,
+                                  cpu.median_ms, gpu.sim_wall_ms,
+                                  gpu.device_cycles, gpu.clock_mhz,
+                                  error, norm, passed};
+        report.submission_mode = submission_mode_name(tuning.submission);
+        report.block = block;
+        report.work_per_thread = tuning.work_per_thread;
+        report.reduction_ctas = partial_ctas;
+        report.reduction_work_per_thread = actual_reduction_work;
+        report.host_prepare_ms = gpu.host_prepare_ms;
+        report.host_submit_ms = gpu.host_submit_ms;
+        report.queue_wait_ms = gpu.queue_wait_ms;
+        report.queue_execution_ms = gpu.queue_execution_ms;
+        print_benchmark_report(report);
         runner.dump_perf();
         return passed ? EXIT_SUCCESS : EXIT_FAILURE;
     } catch (const std::exception& exception) {

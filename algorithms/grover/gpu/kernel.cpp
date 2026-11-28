@@ -56,18 +56,18 @@ __kernel void kernel_main(kernel_arg_t* __UNIFORM__ arg) {
         const float inverse_size = 1.0f / static_cast<float>(arg->state_size);
         mean[0] = {sum.real * inverse_size, sum.imag * inverse_size};
     } else if (arg->op_type == OP_DIFFUSE) {
-        const uint32_t pair = blockIdx.x * blockDim.x + threadIdx.x;
-        if (pair >= arg->pair_count) {
-            return;
-        }
-        const uint32_t index = pair * 2u;
         auto mean = reinterpret_cast<complex_t*>(arg->mean_addr);
         const complex_t average = mean[0];
-        const complex_t a = state[index];
-        const complex_t b = state[index + 1u];
-        state[index] = {2.0f * average.real - a.real,
-                        2.0f * average.imag - a.imag};
-        state[index + 1u] = {2.0f * average.real - b.real,
-                             2.0f * average.imag - b.imag};
+        const uint32_t stride = gridDim.x * blockDim.x;
+        for (uint32_t pair = blockIdx.x * blockDim.x + threadIdx.x;
+             pair < arg->pair_count; pair += stride) {
+            const uint32_t index = pair * 2u;
+            const complex_t a = state[index];
+            const complex_t b = state[index + 1u];
+            state[index] = {2.0f * average.real - a.real,
+                            2.0f * average.imag - a.imag};
+            state[index + 1u] = {2.0f * average.real - b.real,
+                                 2.0f * average.imag - b.imag};
+        }
     }
 }

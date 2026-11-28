@@ -113,6 +113,15 @@ struct benchmark_report_t {
     double max_error = 0.0;
     double norm = 0.0;
     bool passed = false;
+    std::string submission_mode = "individual";
+    uint32_t block = 0;
+    uint32_t work_per_thread = 1;
+    uint32_t reduction_ctas = 0;
+    uint32_t reduction_work_per_thread = 0;
+    double host_prepare_ms = 0.0;
+    double host_submit_ms = 0.0;
+    double queue_wait_ms = 0.0;
+    double queue_execution_ms = 0.0;
 };
 
 inline void print_benchmark_report(const benchmark_report_t& report) {
@@ -129,6 +138,15 @@ inline void print_benchmark_report(const benchmark_report_t& report) {
               << "Simulator wall time (not target time): "
               << report.sim_wall_ms << " ms\n"
               << "Kernel launches: " << report.launches << '\n'
+              << "Submission mode: " << report.submission_mode << '\n'
+              << "Block size: " << report.block << '\n'
+              << "Work per thread: " << report.work_per_thread << '\n'
+              << "Reduction CTAs: " << report.reduction_ctas << '\n'
+              << "Reduction work per thread: " << report.reduction_work_per_thread << '\n'
+              << "Host preparation time: " << report.host_prepare_ms << " ms\n"
+              << "Host enqueue time: " << report.host_submit_ms << " ms\n"
+              << "Mean queue wait time: " << report.queue_wait_ms << " ms\n"
+              << "Queue execution time: " << report.queue_execution_ms << " ms\n"
               << "Maximum amplitude error: " << report.max_error << '\n'
               << "Total probability: " << report.norm << '\n'
               << "RESULT_JSON: {\"algorithm\":\"" << report.algorithm
@@ -139,6 +157,15 @@ inline void print_benchmark_report(const benchmark_report_t& report) {
               << ",\"modeled_device_ms\":" << modeled_ms
               << ",\"sim_wall_ms\":" << report.sim_wall_ms
               << ",\"launches\":" << report.launches
+              << ",\"submission_mode\":\"" << report.submission_mode << '"'
+              << ",\"block\":" << report.block
+              << ",\"work_per_thread\":" << report.work_per_thread
+              << ",\"reduction_ctas\":" << report.reduction_ctas
+              << ",\"reduction_work_per_thread\":" << report.reduction_work_per_thread
+              << ",\"host_prepare_ms\":" << report.host_prepare_ms
+              << ",\"host_submit_ms\":" << report.host_submit_ms
+              << ",\"queue_wait_ms\":" << report.queue_wait_ms
+              << ",\"queue_execution_ms\":" << report.queue_execution_ms
               << ",\"max_error\":" << report.max_error
               << ",\"norm\":" << report.norm
               << ",\"passed\":" << (report.passed ? "true" : "false")
